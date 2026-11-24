@@ -1,0 +1,26 @@
+{
+  "name": "schemapilot-ai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SchemaPilot AI - AI-Powered Database Schema Designer SaaS",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:backend": "npm --workspace=@schemapilot/backend run start:dev",
+    "dev:frontend": "npm --workspace=@schemapilot/frontend run dev",
+    "build:packages": "npm --workspace=@schemapilot/shared-types run build && npm --workspace=@schemapilot/schema-core run build && npm --workspace=@schemapilot/schema-validators run build && npm --workspace=@schemapilot/sql-generators run build",
+    "build:backend": "npm --workspace=@schemapilot/backend run build",
+    "build:frontend": "npm --workspace=@schemapilot/frontend run build",
+    "build": "npm run build:packages && npm run build:backend && npm run build:frontend",
+    "test:packages": "npm --workspace=@schemapilot/schema-core test && npm --workspace=@schemapilot/schema-validators test && npm --workspace=@schemapilot/sql-generators test",
+    "test:backend": "npm --workspace=@schemapilot/backend test",
+    "test:frontend": "npm --workspace=@schemapilot/frontend test",
+    "test": "npm run test:packages && npm run test:backend && npm run test:frontend",
+    "lint": "npm --workspace=@schemapilot/backend run lint && npm --workspace=@schemapilot/frontend run lint"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
