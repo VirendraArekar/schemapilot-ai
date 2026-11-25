@@ -1,0 +1,25 @@
+name: SchemaPilot AI CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:packages
+      - run: npm run test:packages
+      - run: npm --workspace=@schemapilot/backend run prisma:generate
+      - run: npm run build:backend
+      - run: npm run test:backend
+      - run: npm run build:frontend
+      - run: npm run test:frontend
