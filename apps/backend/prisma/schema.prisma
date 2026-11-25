@@ -1,0 +1,483 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum GlobalRole {
+  SUPER_ADMIN
+  USER
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum DatabaseEngine {
+  MYSQL
+  POSTGRESQL
+  SQLSERVER
+  SQLITE
+  MONGODB
+}
+
+enum RelationshipType {
+  ONE_TO_ONE
+  ONE_TO_MANY
+  MANY_TO_MANY
+}
+
+enum MigrationStatus {
+  DRAFT
+  PENDING
+  APPLIED
+  ROLLED_BACK
+  FAILED
+}
+
+enum SubscriptionPlan {
+  FREE
+  PRO
+  TEAM
+  ENTERPRISE
+}
+
+model User {
+  id                     String    @id @default(uuid())
+  email                  String    @unique
+  passwordHash           String?   @map("password_hash")
+  name                   String
+  avatarUrl              String?   @map("avatar_url")
+  globalRole             GlobalRole @default(USER) @map("global_role")
+  isEmailVerified        Boolean   @default(false) @map("is_email_verified")
+  emailVerificationToken String?   @map("email_verification_token")
+  resetPasswordToken     String?   @map("reset_password_token")
+  resetPasswordExpires   DateTime? @map("reset_password_expires")
+  googleId               String?   @unique @map("google_id")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+  deletedAt              DateTime? @map("deleted_at")
+
+  sessions         UserSession[]
+  workspaceMembers WorkspaceMember[]
+  ownedWorkspaces  Workspace[]       @relation("WorkspaceOwner")
+  projects         Project[]         @relation("ProjectCreator")
+  aiConversations  AiConversation[]
+  aiUsages         AiUsage[]
+  comments         ProjectComment[]
+  activityLogs     ActivityLog[]
+  notifications    Notification[]
+  apiKeys          ApiKey[]
+
+  @@index([email])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+model UserSession {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  refreshToken String   @map("refresh_token") @db.VarChar(512)
+  userAgent    String?  @map("user_agent")
+  ipAddress    String?  @map("ip_address")
+  expiresAt    DateTime @map("expires_at")
+  revokedAt    DateTime? @map("revoked_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("user_sessions")
+}
+
+model Workspace {
+  id          String    @id @default(uuid())
+  name        String
+  slug        String    @unique
+  description String?
+  ownerId     String    @map("owner_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  owner        User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  members      WorkspaceMember[]
+  projects     Project[]
+  subscription Subscription?
+  activityLogs ActivityLog[]
+  apiKeys      ApiKey[]
+
+  @@index([ownerId])
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String        @id @default(uuid())
+  workspaceId String        @map("workspace_id")
+  userId      String        @map("user_id")
+  role        WorkspaceRole @default(EDITOR)
+  invitedAt   DateTime      @default(now()) @map("invited_at")
+  joinedAt    DateTime?     @map("joined_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+model Project {
+  id          String         @id @default(uuid())
+  workspaceId String         @map("workspace_id")
+  createdById String         @map("created_by_id")
+  name        String
+  description String?        @db.Text
+  engine      DatabaseEngine @default(POSTGRESQL)
+  isPublic    Boolean        @default(false) @map("is_public")
+  shareToken  String?        @unique @map("share_token")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+  deletedAt   DateTime?      @map("deleted_at")
+
+  workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy       User             @relation("ProjectCreator", fields: [createdById], references: [id])
+  schemas         DatabaseSchema[]
+  aiConversations AiConversation[]
+  schemaImports   SchemaImport[]
+  comments        ProjectComment[]
+  activityLogs    ActivityLog[]
+
+  @@index([workspaceId])
+  @@index([createdById])
+  @@index([deletedAt])
+  @@map("projects")
+}
+
+model DatabaseSchema {
+  id             String         @id @default(uuid())
+  projectId      String         @map("project_id")
+  name           String
+  description    String?        @db.Text
+  engine         DatabaseEngine @default(POSTGRESQL)
+  currentVersion Int            @default(1) @map("current_version")
+  metadataJson   Json?          @map("metadata_json")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  deletedAt      DateTime?      @map("deleted_at")
+
+  project       Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions      SchemaVersion[]
+  tables        SchemaTable[]
+  relationships SchemaRelationship[]
+  migrations    Migration[]
+
+  @@index([projectId])
+  @@map("database_schemas")
+}
+
+model SchemaVersion {
+  id            String   @id @default(uuid())
+  schemaId      String   @map("schema_id")
+  versionNumber Int      @map("version_number")
+  commitMessage String   @map("commit_message")
+  snapshotJson  Json     @map("snapshot_json")
+  createdById   String?  @map("created_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  schema DatabaseSchema @relation(fields: [schemaId], references: [id], onDelete: Cascade)
+
+  @@unique([schemaId, versionNumber])
+  @@index([schemaId])
+  @@map("schema_versions")
+}
+
+model SchemaTable {
+  id           String   @id @default(uuid())
+  schemaId     String   @map("schema_id")
+  name         String
+  description  String?  @db.Text
+  groupName    String?  @map("group_name")
+  positionX    Float    @default(0) @map("position_x")
+  positionY    Float    @default(0) @map("position_y")
+  isSoftDelete Boolean  @default(false) @map("is_soft_delete")
+  isAudited    Boolean  @default(false) @map("is_audited")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  schema      DatabaseSchema     @relation(fields: [schemaId], references: [id], onDelete: Cascade)
+  columns     SchemaColumn[]
+  indexes     SchemaIndex[]
+  constraints SchemaConstraint[]
+
+  @@unique([schemaId, name])
+  @@index([schemaId])
+  @@map("schema_tables")
+}
+
+model SchemaColumn {
+  id              String   @id @default(uuid())
+  tableId         String   @map("table_id")
+  name            String
+  dataType        String   @map("data_type")
+  length          Int?
+  precision       Int?
+  scale           Int?
+  isPrimaryKey    Boolean  @default(false) @map("is_primary_key")
+  isForeignKey    Boolean  @default(false) @map("is_foreign_key")
+  isNullable      Boolean  @default(true) @map("is_nullable")
+  isUnique        Boolean  @default(false) @map("is_unique")
+  isAutoIncrement Boolean  @default(false) @map("is_auto_increment")
+  defaultValue    String?  @map("default_value")
+  enumValues      Json?    @map("enum_values")
+  checkExpression String?  @map("check_expression")
+  comment         String?
+  orderIndex      Int      @default(0) @map("order_index")
+
+  table SchemaTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@unique([tableId, name])
+  @@index([tableId])
+  @@map("schema_columns")
+}
+
+model SchemaRelationship {
+  id           String           @id @default(uuid())
+  schemaId     String           @map("schema_id")
+  name         String
+  sourceTable  String           @map("source_table")
+  sourceColumn String           @map("source_column")
+  targetTable  String           @map("target_table")
+  targetColumn String           @map("target_column")
+  type         RelationshipType @default(ONE_TO_MANY)
+  onDelete     String           @default("CASCADE") @map("on_delete")
+  onUpdate     String           @default("CASCADE") @map("on_update")
+  isOptional   Boolean          @default(false) @map("is_optional")
+
+  schema DatabaseSchema @relation(fields: [schemaId], references: [id], onDelete: Cascade)
+
+  @@index([schemaId])
+  @@map("schema_relationships")
+}
+
+model SchemaIndex {
+  id          String  @id @default(uuid())
+  tableId     String  @map("table_id")
+  name        String
+  columnsJson Json    @map("columns_json")
+  isUnique    Boolean @default(false) @map("is_unique")
+  indexType   String  @default("BTREE") @map("index_type")
+
+  table SchemaTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@index([tableId])
+  @@map("schema_indexes")
+}
+
+model SchemaConstraint {
+  id             String  @id @default(uuid())
+  tableId        String  @map("table_id")
+  name           String
+  constraintType String  @map("constraint_type")
+  columnsJson    Json    @map("columns_json")
+  expression     String?
+
+  table SchemaTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@index([tableId])
+  @@map("schema_constraints")
+}
+
+model AiConversation {
+  id        String   @id @default(uuid())
+  projectId String?  @map("project_id")
+  userId    String   @map("user_id")
+  title     String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project  Project?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages AiMessage[]
+
+  @@index([projectId])
+  @@index([userId])
+  @@map("ai_conversations")
+}
+
+model AiMessage {
+  id             String   @id @default(uuid())
+  conversationId String   @map("conversation_id")
+  role           String
+  content        String   @db.LongText
+  proposedDiff   Json?    @map("proposed_diff")
+  status         String   @default("APPLIED")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("ai_messages")
+}
+
+model AiUsage {
+  id               String   @id @default(uuid())
+  userId           String   @map("user_id")
+  provider         String
+  model            String
+  operation        String
+  promptTokens     Int      @default(0) @map("prompt_tokens")
+  completionTokens Int      @default(0) @map("completion_tokens")
+  totalTokens      Int      @default(0) @map("total_tokens")
+  latencyMs        Int      @default(0) @map("latency_ms")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("ai_usage")
+}
+
+model SchemaImport {
+  id           String   @id @default(uuid())
+  projectId    String   @map("project_id")
+  sourceFormat String   @map("source_format")
+  rawContent   String   @map("raw_content") @db.LongText
+  status       String   @default("PARSED")
+  errorMessage String?  @map("error_message") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("schema_imports")
+}
+
+model Migration {
+  id           String          @id @default(uuid())
+  schemaId     String          @map("schema_id")
+  versionTag   String          @map("version_tag")
+  name         String
+  upSql        String          @map("up_sql") @db.LongText
+  downSql      String          @map("down_sql") @db.LongText
+  checksum     String
+  status       MigrationStatus @default(DRAFT)
+  hasDestructive Boolean       @default(false) @map("has_destructive")
+  createdAt    DateTime        @default(now()) @map("created_at")
+
+  schema     DatabaseSchema       @relation(fields: [schemaId], references: [id], onDelete: Cascade)
+  executions MigrationExecution[]
+
+  @@index([schemaId])
+  @@map("migrations")
+}
+
+model MigrationExecution {
+  id          String          @id @default(uuid())
+  migrationId String          @map("migration_id")
+  direction   String
+  status      MigrationStatus
+  executedBy  String?         @map("executed_by")
+  notes       String?         @db.Text
+  executedAt  DateTime        @default(now()) @map("executed_at")
+
+  migration Migration @relation(fields: [migrationId], references: [id], onDelete: Cascade)
+
+  @@index([migrationId])
+  @@map("migration_executions")
+}
+
+model ProjectComment {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  userId    String   @map("user_id")
+  tableName String?  @map("table_name")
+  content   String   @db.Text
+  resolved  Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("project_comments")
+}
+
+model ActivityLog {
+  id          String   @id @default(uuid())
+  workspaceId String?  @map("workspace_id")
+  projectId   String?  @map("project_id")
+  userId      String?  @map("user_id")
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String?  @map("entity_id")
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  project   Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  user      User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId])
+  @@index([projectId])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  title     String
+  message   String   @db.Text
+  type      String   @default("INFO")
+  isRead    Boolean  @default(false) @map("is_read")
+  link      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+model Subscription {
+  id                 String           @id @default(uuid())
+  workspaceId        String           @unique @map("workspace_id")
+  plan               SubscriptionPlan @default(FREE)
+  status             String           @default("ACTIVE")
+  monthlyAiQuota     Int              @default(100) @map("monthly_ai_quota")
+  currentPeriodStart DateTime         @default(now()) @map("current_period_start")
+  currentPeriodEnd   DateTime         @map("current_period_end")
+  createdAt          DateTime         @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+model ApiKey {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  workspaceId String    @map("workspace_id")
+  name        String
+  keyHash     String    @unique @map("key_hash")
+  prefix      String
+  lastUsedAt  DateTime? @map("last_used_at")
+  expiresAt   DateTime? @map("expires_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("api_keys")
+}
